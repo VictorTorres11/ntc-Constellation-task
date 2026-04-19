@@ -75,3 +75,43 @@ https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecr_
 https://docs.aws.amazon.com/AmazonECR/latest/userguide/LifecyclePolicies.html
 - AWS CLI: ECR
 https://docs.aws.amazon.com/cli/latest/reference/ecr/index.html
+
+---
+
+## Stage 2 — Docker Build and Push
+
+Builds the ASP.NET Core 8 API image using a multi-stage Dockerfile and pushes it to ECR.
+
+### Prerequisites
+
+- Docker >= 24.0
+https://docs.docker.com/get-docker/
+- AWS CLI >= 2.0 configured with valid credentials
+- ECR repository provisioned (Stage 1)
+- Required AWS permissions: `ecr:GetAuthorizationToken`, `ecr:BatchCheckLayerAvailability`, `ecr:PutImage`
+
+### Commands
+
+```bash
+# Build the image locally (run from repo root)
+docker build -t ntc-constellation-api:local ./app
+
+# Run locally to verify
+docker run --rm -p 8080:8080 ntc-constellation-api:local
+# Visit http://localhost:8080 and http://localhost:8080/health
+
+```
+
+### Dockerfile stages
+
+- `build` — uses `mcr.microsoft.com/dotnet/sdk:8.0` to restore, compile and publish the app
+- `runtime` — uses `mcr.microsoft.com/dotnet/aspnet:8.0` as the minimal runtime image; only the published output is copied
+
+### References
+
+- ASP.NET Core Docker images
+https://hub.docker.com/_/microsoft-dotnet-aspnet
+- .NET SDK Docker images
+https://hub.docker.com/_/microsoft-dotnet-sdk
+- Docker multi-stage builds
+https://docs.docker.com/build/building/multi-stage/
