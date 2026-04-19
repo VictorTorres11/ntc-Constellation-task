@@ -1,0 +1,12 @@
+aws_region          = "us-west-1"
+project_name        = "ntc-constellation"
+environment         = "dev"
+ecr_repository_name = "ntc-constellation-api"
+
+# GitHub OIDC — scope the trust policy to your repo
+github_org  = "your-github-org"
+github_repo = "ntc-Constellation-task"
+
+# ARNs from infra/ecs outputs
+ecs_execution_role_arn = "arn:aws:iam::123456789012:role/ntc-constellation-ecs-execution-role"
+ecs_task_role_arn      = "arn:aws:iam::123456789012:role/ntc-constellation-ecs-task-role"

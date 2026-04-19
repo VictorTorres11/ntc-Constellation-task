@@ -5,7 +5,7 @@
 #   ./scripts/ecr-push.sh
 #
 # Environment variables:
-#   AWS_REGION        — AWS region (default: us-east-1)
+#   AWS_REGION        — AWS region (default: us-west-1)
 #   TF_WORKING_DIR    — ECR Terraform module directory (default: infra/ecr)
 #   LOCAL_IMAGE       — Local image name to tag and push (default: ntc-constellation-api:local)
 #   GIT_SHA           — Git commit SHA to use as image tag (default: current HEAD)
@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-us-west-1}"
 TF_WORKING_DIR="${TF_WORKING_DIR:-infra/ecr}"
 LOCAL_IMAGE="${LOCAL_IMAGE:-ntc-constellation-api:local}"
 GIT_SHA="${GIT_SHA:-$(git rev-parse --short HEAD)}"

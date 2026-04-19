@@ -1,0 +1,124 @@
+# CI/CD pipeline for ntc-Constellation API
+#
+# Runs on every push to main. Three jobs run in sequence:
+#   1. test       — restore and run .NET tests
+#   2. build-push — build Docker image and push to ECR (only if tests pass)
+#   3. deploy     — blue-green deployment on ECS (only if image was pushed)
+#
+# Authentication to AWS uses OIDC — no long-lived access keys stored anywhere.
+#
+# GitHub Secrets required:
+#   AWS_ROLE_ARN      — IAM role ARN for OIDC (created in infra/pipeline)
+#   AWS_REGION        — AWS region (e.g. us-west-1)
+#   ECR_REPOSITORY    — ECR repository name
+#   ECS_CLUSTER       — ECS cluster name
+#   ALB_LISTENER_ARN  — ARN of the ALB HTTP listener
+#   TG_BLUE_ARN       — ARN of the blue target group
+#   TG_GREEN_ARN      — ARN of the green target group
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write  # needed to request the OIDC token
+  contents: read
+
+jobs:
+  # Scan repository for hardcoded secrets before doing anything else
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets with TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  # Run .NET unit tests — pipeline stops here if anything fails
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [secret-scan]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore app/aspnetapp.csproj
+        working-directory: ntc-Constellation-task
+
+      - name: Run tests
+        run: dotnet test app/aspnetapp.csproj --no-restore --verbosity normal
+        working-directory: ntc-Constellation-task
+
+  # Build the Docker image and push it to ECR tagged with the commit SHA
+  build-push:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    needs: [test]
+
+    outputs:
+      image_tag: ${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG app/
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        working-directory: ntc-Constellation-task
+
+  # Deploy the new image using the blue-green script
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [build-push]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2

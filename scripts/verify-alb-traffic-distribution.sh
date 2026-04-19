@@ -6,7 +6,7 @@
 #   ./scripts/verify-alb-traffic-distribution.sh
 #
 # Environment variables:
-#   AWS_REGION        — AWS region (default: us-east-1)
+#   AWS_REGION        — AWS region (default: us-west-1)
 #   TF_WORKING_DIR    — ECS module directory (default: infra/ecs)
 #
 # References:
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-us-west-1}"
 TF_WORKING_DIR="${TF_WORKING_DIR:-infra/ecs}"
 
 LISTENER_ARN=$(terraform -chdir="${TF_WORKING_DIR}" output -raw alb_listener_arn 2>/dev/null)
