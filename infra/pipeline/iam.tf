@@ -123,3 +123,125 @@ resource "aws_iam_role_policy" "github_actions" {
   role   = aws_iam_role.github_actions.id
   policy = data.aws_iam_policy_document.github_actions_permissions.json
 }
+
+# Extra permissions needed for terraform apply on infra/ecr, infra/ecs, infra/monitoring
+data "aws_iam_policy_document" "github_actions_infra" {
+  statement {
+    sid = "ECRManage"
+    actions = [
+      "ecr:CreateRepository",
+      "ecr:DeleteRepository",
+      "ecr:DescribeRepositories",
+      "ecr:PutLifecyclePolicy",
+      "ecr:GetLifecyclePolicy",
+      "ecr:DeleteLifecyclePolicy",
+      "ecr:TagResource",
+      "ecr:ListTagsForResource",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "VPCManage"
+    actions = [
+      "ec2:*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ECSManage"
+    actions = [
+      "ecs:CreateCluster",
+      "ecs:DeleteCluster",
+      "ecs:DescribeClusters",
+      "ecs:CreateService",
+      "ecs:DeleteService",
+      "ecs:UpdateService",
+      "ecs:DescribeServices",
+      "ecs:RegisterTaskDefinition",
+      "ecs:DeregisterTaskDefinition",
+      "ecs:DescribeTaskDefinition",
+      "ecs:TagResource",
+      "ecs:ListTagsForResource",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "ALBManage"
+    actions = [
+      "elasticloadbalancing:*",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "IAMManage"
+    actions = [
+      "iam:CreateRole",
+      "iam:DeleteRole",
+      "iam:GetRole",
+      "iam:PassRole",
+      "iam:AttachRolePolicy",
+      "iam:DetachRolePolicy",
+      "iam:PutRolePolicy",
+      "iam:DeleteRolePolicy",
+      "iam:GetRolePolicy",
+      "iam:ListRolePolicies",
+      "iam:ListAttachedRolePolicies",
+      "iam:TagRole",
+      "iam:ListInstanceProfilesForRole",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "CloudWatchManage"
+    actions = [
+      "cloudwatch:PutMetricAlarm",
+      "cloudwatch:DeleteAlarms",
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:PutDashboard",
+      "cloudwatch:DeleteDashboards",
+      "cloudwatch:GetDashboard",
+      "logs:CreateLogGroup",
+      "logs:DeleteLogGroup",
+      "logs:DescribeLogGroups",
+      "logs:PutRetentionPolicy",
+      "logs:ListTagsLogGroup",
+      "logs:TagLogGroup",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "S3StateAccess"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:ListBucket",
+    ]
+    resources = [
+      "arn:aws:s3:::ntc-constellation-tfstate",
+      "arn:aws:s3:::ntc-constellation-tfstate/*",
+    ]
+  }
+
+  statement {
+    sid = "DynamoDBLock"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    ]
+    resources = ["arn:aws:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/terraform-locks"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_infra" {
+  name   = "${var.project_name}-github-actions-infra-policy"
+  role   = aws_iam_role.github_actions.id
+  policy = data.aws_iam_policy_document.github_actions_infra.json
+}
