@@ -34,8 +34,8 @@ echo "listener: $LISTENER"
 echo "tg-blue:  $TG_BLUE"
 echo "tg-green: $TG_GREEN"
 
-BLUE_WEIGHT=$(aws elbv2 describe-rules --listener-arn "$LISTENER" --region "$AWS_REGION" \
-  --query "Rules[?IsDefault==\`true\`].Actions[0].ForwardConfig.TargetGroups[?TargetGroupArn==\`${TG_BLUE}\`].Weight | [0][0]" \
+BLUE_WEIGHT=$(aws elbv2 describe-listeners --listener-arns "$LISTENER" --region "$AWS_REGION" \
+  --query "Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups[?TargetGroupArn==\`${TG_BLUE}\`].Weight | [0]" \
   --output text)
 BLUE_WEIGHT="${BLUE_WEIGHT:-0}"
 [[ "$BLUE_WEIGHT" == "None" ]] && BLUE_WEIGHT=0
@@ -94,12 +94,11 @@ done
 [[ $ELAPSED -ge 300 ]] && { echo "timed out waiting for healthy targets"; exit 1; }
 
 _check_weights() {
-aws elbv2 describe-rules --listener-arn "$LISTENER" --region "$AWS_REGION" \
-  --query "Rules[?IsDefault==\`true\`].Actions[0].ForwardConfig.TargetGroups" \
+aws elbv2 describe-listeners --listener-arns "$LISTENER" --region "$AWS_REGION" \
+  --query "Listeners[0].DefaultActions[0].ForwardConfig.TargetGroups" \
   --output json | python3 -c "
 import sys, json
 tgs = json.load(sys.stdin)
-if tgs and isinstance(tgs[0], list): tgs = tgs[0]
 total = sum(int(t.get('Weight',0)) for t in tgs)
 print('weight total:', total)
 assert total == 100, f'weights dont sum to 100: {total}'
@@ -108,21 +107,18 @@ assert total == 100, f'weights dont sum to 100: {total}'
 
 _check_weights
 
-RULE_ARN=$(aws elbv2 describe-rules --listener-arn "$LISTENER" --region "$AWS_REGION" \
-  --query "Rules[?IsDefault==\`true\`].RuleArn | [0]" --output text)
-
 rollback() {
 local start; start=$(date +%s)
 echo "ROLLBACK: reverting to $ACTIVE"
-aws elbv2 modify-rule --rule-arn "$RULE_ARN" --region "$AWS_REGION" \
-  --actions "[{\"Type\":\"forward\",\"ForwardConfig\":{\"TargetGroups\":[{\"TargetGroupArn\":\"${ACTIVE_TG}\",\"Weight\":100},{\"TargetGroupArn\":\"${INACTIVE_TG}\",\"Weight\":0}]}}]" \
+aws elbv2 modify-listener --listener-arn "$LISTENER" --region "$AWS_REGION" \
+  --default-actions "[{\"Type\":\"forward\",\"ForwardConfig\":{\"TargetGroups\":[{\"TargetGroupArn\":\"${ACTIVE_TG}\",\"Weight\":100},{\"TargetGroupArn\":\"${INACTIVE_TG}\",\"Weight\":0}]}}]" \
   --output json > /dev/null
 echo "rollback done in $(( $(date +%s) - start ))s"
 }
 
 echo "switching traffic to $INACTIVE"
-aws elbv2 modify-rule --rule-arn "$RULE_ARN" --region "$AWS_REGION" \
-  --actions "[{\"Type\":\"forward\",\"ForwardConfig\":{\"TargetGroups\":[{\"TargetGroupArn\":\"${INACTIVE_TG}\",\"Weight\":100},{\"TargetGroupArn\":\"${ACTIVE_TG}\",\"Weight\":0}]}}]" \
+aws elbv2 modify-listener --listener-arn "$LISTENER" --region "$AWS_REGION" \
+  --default-actions "[{\"Type\":\"forward\",\"ForwardConfig\":{\"TargetGroups\":[{\"TargetGroupArn\":\"${INACTIVE_TG}\",\"Weight\":100},{\"TargetGroupArn\":\"${ACTIVE_TG}\",\"Weight\":0}]}}]" \
   --output json > /dev/null
 
 _check_weights

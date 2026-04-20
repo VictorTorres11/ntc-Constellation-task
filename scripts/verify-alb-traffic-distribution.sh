@@ -10,9 +10,11 @@
 #   TF_WORKING_DIR    — ECS module directory (default: infra/ecs)
 #
 # References:
+#   AWS CLI - elbv2 describe-listeners
+#     https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-listeners.html
 #   AWS CLI - elbv2 describe-rules
 #     https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-rules.html
-#   ALB listener rules and forward actions
+#   ALB listener default actions and forward actions
 #     https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-update-rules.html
 #   ALB weighted target groups (blue/green traffic splitting)
 #     https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html
@@ -30,36 +32,27 @@ if [[ -z "${LISTENER_ARN}" || -z "${TG_BLUE_ARN}" ]]; then
   exit 1
 fi
 
-RULES_JSON=$(aws elbv2 describe-rules \
-  --listener-arn "${LISTENER_ARN}" \
+LISTENER_JSON=$(aws elbv2 describe-listeners \
+  --listener-arns "${LISTENER_ARN}" \
   --region "${AWS_REGION}" \
   --output json)
 
-BLUE_WEIGHT=$(echo "${RULES_JSON}" | \
+BLUE_WEIGHT=$(echo "${LISTENER_JSON}" | \
   python3 -c "
 import json, sys
-rules = json.load(sys.stdin)['Rules']
-default_rule = next(r for r in rules if r.get('IsDefault'))
-for action in default_rule['Actions']:
-    if action['Type'] == 'forward':
-        for tg in action['ForwardConfig']['TargetGroups']:
-            if tg['TargetGroupArn'] == '${TG_BLUE_ARN}':
-                print(tg['Weight'])
-                sys.exit(0)
+tgs = json.load(sys.stdin)['Listeners'][0]['DefaultActions'][0]['ForwardConfig']['TargetGroups']
+for tg in tgs:
+    if tg['TargetGroupArn'] == '${TG_BLUE_ARN}':
+        print(tg['Weight'])
+        sys.exit(0)
 print(0)
 ")
 
-GREEN_WEIGHT=$(echo "${RULES_JSON}" | \
+GREEN_WEIGHT=$(echo "${LISTENER_JSON}" | \
   python3 -c "
 import json, sys
-rules = json.load(sys.stdin)['Rules']
-default_rule = next(r for r in rules if r.get('IsDefault'))
-green_weight = 0
-for action in default_rule['Actions']:
-    if action['Type'] == 'forward':
-        for tg in action['ForwardConfig']['TargetGroups']:
-            if tg['TargetGroupArn'] != '${TG_BLUE_ARN}':
-                green_weight += tg['Weight']
+tgs = json.load(sys.stdin)['Listeners'][0]['DefaultActions'][0]['ForwardConfig']['TargetGroups']
+green_weight = sum(tg['Weight'] for tg in tgs if tg['TargetGroupArn'] != '${TG_BLUE_ARN}')
 print(green_weight)
 ")
 
