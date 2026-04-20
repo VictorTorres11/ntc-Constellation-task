@@ -280,3 +280,58 @@ export IMAGE_TAG="<git-sha>"
 - https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-update-rules.html
 - https://docs.aws.amazon.com/cli/latest/reference/ecs/wait/services-stable.html
 - https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-target-health.html
+
+---
+
+## Stage 6 — Monitoring and Automatic Rollback
+
+CloudWatch alarm for 5xx error rate, a dashboard with latency/errors/requests metrics, and automatic rollback triggered by the alarm during deploys. Infrastructure in `infra/monitoring/` — separate Terraform module using data sources to reference the ALB created in Stage 3.
+
+### Prerequisites
+
+- Terraform >= 1.0
+- AWS permissions: `cloudwatch:PutMetricAlarm`, `cloudwatch:PutDashboard`, `cloudwatch:DescribeAlarms`, `elasticloadbalancing:DescribeLoadBalancers`
+
+### Configuration
+
+```bash
+cp infra/monitoring/terraform.tfvars.example infra/monitoring/terraform.tfvars
+```
+
+```hcl
+aws_region   = "us-west-1"
+project_name = "ntc-constellation"
+environment  = "dev"
+
+alarm_error_rate_threshold = 5
+alarm_evaluation_periods   = 2
+alarm_period_seconds       = 60
+```
+
+### Commands
+
+```bash
+cd infra/monitoring
+terraform init
+terraform validate
+terraform plan -var-file="terraform.tfvars" -out=tfplan
+terraform apply tfplan
+
+terraform output alarm_5xx_rate_name
+terraform output dashboard_name
+
+terraform destroy -var-file="terraform.tfvars"
+```
+
+### How It Works
+
+- `aws_cloudwatch_metric_alarm` monitors `HTTPCode_ELB_5XX_Count / RequestCount * 100` on the ALB. If the rate exceeds 5% for 2 consecutive minutes, the alarm enters `ALARM` state.
+- `aws_cloudwatch_dashboard` shows three widgets: P50/P95/P99 latency, 5xx error rate with threshold annotation, and request counts.
+- `blue-green-deploy.sh` polls `aws cloudwatch describe-alarms` every 15 seconds for 2 minutes after the traffic switch. If the alarm is in `ALARM` state, the script calls `rollback` and exits with code 1.
+
+### References
+
+- https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html
+- https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm
+- https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_dashboard
+- https://docs.aws.amazon.com/cli/latest/reference/cloudwatch/describe-alarms.html
