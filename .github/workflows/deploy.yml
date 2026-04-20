@@ -37,7 +37,7 @@ jobs:
         run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
 
       - run: terraform init
-        working-directory: ntc-Constellation-task/infra/pipeline
+        working-directory: infra/pipeline
 
       - name: Apply
         run: |
@@ -48,12 +48,12 @@ jobs:
             -var="ecr_repository_name=${{ vars.ECR_REPOSITORY_NAME }}" \
             -var="ecs_execution_role_arn=arn:aws:iam::${{ steps.account.outputs.id }}:role/ntc-constellation-ecs-execution-role" \
             -var="ecs_task_role_arn=arn:aws:iam::${{ steps.account.outputs.id }}:role/ntc-constellation-ecs-task-role"
-        working-directory: ntc-Constellation-task/infra/pipeline
+        working-directory: infra/pipeline
 
       - name: Get role ARN
         id: tf-output
         run: echo "role_arn=$(terraform output -raw github_actions_role_arn)" >> $GITHUB_OUTPUT
-        working-directory: ntc-Constellation-task/infra/pipeline
+        working-directory: infra/pipeline
 
   infra-ecr:
     name: Infra / ECR
@@ -74,14 +74,14 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - run: terraform init
-        working-directory: ntc-Constellation-task/infra/ecr
+        working-directory: infra/ecr
 
       - name: Apply
         run: |
           terraform apply -auto-approve \
             -var="aws_region=${{ vars.AWS_REGION }}" \
             -var="repository_name=${{ vars.ECR_REPOSITORY_NAME }}"
-        working-directory: ntc-Constellation-task/infra/ecr
+        working-directory: infra/ecr
 
   infra-ecs:
     name: Infra / ECS
@@ -117,14 +117,14 @@ jobs:
           echo "url=$url" >> $GITHUB_OUTPUT
 
       - run: terraform init
-        working-directory: ntc-Constellation-task/infra/ecs
+        working-directory: infra/ecs
 
       - name: Apply
         run: |
           terraform apply -auto-approve \
             -var="aws_region=${{ vars.AWS_REGION }}" \
             -var="ecr_repository_url=${{ steps.ecr.outputs.url }}"
-        working-directory: ntc-Constellation-task/infra/ecs
+        working-directory: infra/ecs
 
       - name: Get outputs
         id: tf-output
@@ -133,7 +133,7 @@ jobs:
           echo "listener_arn=$(terraform output -raw alb_listener_arn)" >> $GITHUB_OUTPUT
           echo "tg_blue_arn=$(terraform output -raw target_group_blue_arn)" >> $GITHUB_OUTPUT
           echo "tg_green_arn=$(terraform output -raw target_group_green_arn)" >> $GITHUB_OUTPUT
-        working-directory: ntc-Constellation-task/infra/ecs
+        working-directory: infra/ecs
 
   infra-monitoring:
     name: Infra / Monitoring
@@ -154,11 +154,11 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
 
       - run: terraform init
-        working-directory: ntc-Constellation-task/infra/monitoring
+        working-directory: infra/monitoring
 
       - name: Apply
         run: terraform apply -auto-approve -var="aws_region=${{ vars.AWS_REGION }}"
-        working-directory: ntc-Constellation-task/infra/monitoring
+        working-directory: infra/monitoring
 
   secret-scan:
     name: Secret Scan
@@ -190,10 +190,8 @@ jobs:
           dotnet-version: "8.0.x"
 
       - run: dotnet restore app/aspnetapp.csproj
-        working-directory: ntc-Constellation-task
 
       - run: dotnet test app/aspnetapp.csproj --no-restore --verbosity normal
-        working-directory: ntc-Constellation-task
 
   build-push:
     name: Build & Push
@@ -220,7 +218,6 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG app/
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        working-directory: ntc-Constellation-task
 
   deploy:
     name: Deploy
@@ -247,4 +244,3 @@ jobs:
         run: |
           chmod +x scripts/blue-green-deploy.sh
           ./scripts/blue-green-deploy.sh
-        working-directory: ntc-Constellation-task
