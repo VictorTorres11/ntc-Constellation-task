@@ -122,3 +122,18 @@ jobs:
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Blue-green deploy
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
+          ALB_LISTENER_ARN: ${{ secrets.ALB_LISTENER_ARN }}
+          TG_BLUE_ARN: ${{ secrets.TG_BLUE_ARN }}
+          TG_GREEN_ARN: ${{ secrets.TG_GREEN_ARN }}
+        run: |
+          chmod +x scripts/blue-green-deploy.sh
+          ./scripts/blue-green-deploy.sh
+        working-directory: ntc-Constellation-task
