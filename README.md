@@ -17,11 +17,11 @@ One-time setup. Creates the S3 bucket and DynamoDB table used as Terraform remot
 
 ```powershell
 # Windows PowerShell
-aws s3api create-bucket --bucket "ntc-constellation-tfstate" --region "us-west-1" --create-bucket-configuration LocationConstraint="us-west-1"
+aws s3api create-bucket --bucket "ntc-constellation-tfstate" --region "eu-west-1" --create-bucket-configuration LocationConstraint="eu-west-1"
 aws s3api put-bucket-versioning --bucket "ntc-constellation-tfstate" --versioning-configuration Status=Enabled
 aws s3api put-bucket-encryption --bucket "ntc-constellation-tfstate" --server-side-encryption-configuration '{\"Rules\":[{\"ApplyServerSideEncryptionByDefault\":{\"SSEAlgorithm\":\"AES256\"}}]}'
 aws s3api put-public-access-block --bucket "ntc-constellation-tfstate" --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
-aws dynamodb create-table --table-name "terraform-locks" --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST --region "us-west-1"
+aws dynamodb create-table --table-name "terraform-locks" --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST --region "eu-west-1"
 ```
 
 After this, every `terraform init` in `infra/ecr`, `infra/ecs`, and `infra/pipeline` will automatically use the S3 backend and DynamoDB lock.
@@ -51,7 +51,7 @@ cp infra/ecr/terraform.tfvars.example infra/ecr/terraform.tfvars
 ```
 
 ```hcl
-aws_region      = "us-west-1"
+aws_region      = "eu-west-1"
 environment     = "dev"
 ```
 
@@ -134,11 +134,11 @@ cp infra/ecs/terraform.tfvars.example infra/ecs/terraform.tfvars
 ```
 
 ```hcl
-aws_region         = "us-west-1"
+aws_region         = "eu-west-1"
 project_name       = "ntc-constellation"
 environment        = "dev"
 vpc_cidr           = "10.0.0.0/16"
-ecr_repository_url = "<account>.dkr.ecr.us-west-1.amazonaws.com/ntc-constellation-api"
+ecr_repository_url = "<account>.dkr.ecr.eu-west-1.amazonaws.com/ntc-constellation-api"
 app_image_tag      = "latest"
 ```
 
@@ -186,7 +186,7 @@ CI/CD pipeline with three jobs: `test` runs .NET tests, `build-push` builds and 
 
 
 `AWS_ROLE_ARN` = ARN IAM Role created in `infra/pipeline`
-`AWS_REGION` = `us-west-1` 
+`AWS_REGION` = `eu-west-1` 
 `ECR_REPOSITORY` = ECR repo name
 `ECS_CLUSTER` = ECS cluster name
 
@@ -197,7 +197,7 @@ cp infra/pipeline/terraform.tfvars.example infra/pipeline/terraform.tfvars
 ```
 
 ```hcl
-aws_region       = "us-west-1"
+aws_region       = "eu-west-1"
 project_name     = "ntc-constellation"
 github_org       = "<your-github-username-or-org>"
 github_repo      = "<your-repo-name>"
@@ -253,7 +253,7 @@ Zero-downtime deploys by keeping two identical environments. The ALB listener al
 
 ```bash
 # Run manually
-export AWS_REGION="us-west-1"
+export AWS_REGION="eu-west-1"
 export PROJECT_NAME="ntc-constellation"
 export ECS_CLUSTER="ntc-constellation-cluster"
 export IMAGE_TAG="<git-sha>"
@@ -299,7 +299,7 @@ cp infra/monitoring/terraform.tfvars.example infra/monitoring/terraform.tfvars
 ```
 
 ```hcl
-aws_region   = "us-west-1"
+aws_region   = "eu-west-1"
 project_name = "ntc-constellation"
 environment  = "dev"
 

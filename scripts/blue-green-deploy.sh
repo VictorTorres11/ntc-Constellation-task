@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_REGION="${AWS_REGION:-eu-west-1}"
 PROJECT="${PROJECT_NAME:-ntc-constellation}"
 CLUSTER="${ECS_CLUSTER:-${PROJECT}-cluster}"
 IMAGE_TAG="${IMAGE_TAG:-}"
