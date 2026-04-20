@@ -217,7 +217,13 @@ jobs:
           ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG app/
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          docker build \
+            --build-arg GIT_SHA=$IMAGE_TAG \
+            --build-arg BUILD_TIME=$BUILD_TIME \
+            --build-arg APP_VERSION=$IMAGE_TAG \
+            --build-arg DEPLOY_SLOT=blue \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG app/
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
   deploy:
@@ -245,3 +251,28 @@ jobs:
         run: |
           chmod +x scripts/blue-green-deploy.sh
           ./scripts/blue-green-deploy.sh
+
+      - name: Smoke + load test
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          ALB_DNS=$(aws elbv2 describe-load-balancers \
+            --names "ntc-constellation-alb" \
+            --region "$AWS_REGION" \
+            --query "LoadBalancers[0].DNSName" --output text)
+
+          BASE_URL="http://${ALB_DNS}"
+          echo "testing $BASE_URL"
+
+          # smoke test — check / and /health return 200
+          curl -sf "$BASE_URL/" | python3 -c "import sys,json; d=json.load(sys.stdin); print('slot:', d['slot'], '| commit:', d['commit'], '| built:', d['builtAt'])"
+          curl -sf "$BASE_URL/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print('health:', d['status'])"
+
+          # light load test — 50 requests to populate CloudWatch metrics
+          curl -sf "$BASE_URL/load-test?requests=50" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+total = d['total']
+avg = sum(r['elapsedMs'] for r in d['results']) / total
+print(f'load test: {total} requests, avg {avg:.1f}ms')
+"
