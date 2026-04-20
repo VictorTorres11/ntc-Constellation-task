@@ -168,3 +168,61 @@ terraform destroy -var-file="terraform.tfvars"
 - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lb
 - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_service
 - https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-type-bluegreen.html
+
+
+---
+
+## Stage 4 — GitHub Actions Pipeline
+
+CI/CD pipeline with three jobs: `test` runs .NET tests, `build-push` builds and pushes the Docker image to ECR (only if tests pass), and `deploy` runs the blue-green script. Authentication uses OIDC — no long-lived AWS keys stored anywhere.
+
+### Prerequisites
+
+- GitHub repository with Actions enabled
+- GitHub Secrets configured
+- AWS permissions for the OIDC role: `ecr:GetAuthorizationToken`, `ecr:BatchGetImage`, `ecr:PutImage`, `ecs:UpdateService`, `ecs:DescribeServices`, `ecs:RegisterTaskDefinition`, `elbv2:DescribeRules`, `elbv2:ModifyRule`
+
+### GitHub Secrets Required
+
+
+`AWS_ROLE_ARN` = ARN IAM Role created in `infra/pipeline`
+`AWS_REGION` = `us-west-1` 
+`ECR_REPOSITORY` = ECR repo name
+`ECS_CLUSTER` = ECS cluster name
+
+### Pipeline Configuration
+
+```bash
+cp infra/pipeline/terraform.tfvars.example infra/pipeline/terraform.tfvars
+```
+
+```hcl
+aws_region       = "us-west-1"
+project_name     = "ntc-constellation"
+github_org       = "<your-github-username-or-org>"
+github_repo      = "<your-repo-name>"
+```
+
+```bash
+cd infra/pipeline
+terraform init
+terraform validate
+terraform plan -var-file="terraform.tfvars" -out=tfplan
+terraform apply tfplan
+
+terraform output github_actions_role_arn
+```
+
+### How It Works
+
+Push to `main` triggers the pipeline automatically:
+
+1. `test` — `dotnet restore` + `dotnet test`
+2. `build-push` — docker build + ECR push tagged with `${{ github.sha }}` (skipped if tests fail)
+3. `deploy` — calls `scripts/blue-green-deploy.sh` with the new image tag
+
+### References
+
+- https://docs.github.com/en/actions/use-cases-and-examples/deploying/deploying-to-amazon-elastic-container-service
+- https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
+- https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html
