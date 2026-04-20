@@ -129,16 +129,30 @@ _check_weights
 
 trap 'rollback' ERR
 
-# monitor 5 min
+# monitor 5 min — bail out if healthy targets drop to zero
 ELAPSED=0
 while [[ $ELAPSED -lt 300 ]]; do
 COUNT=$(aws elbv2 describe-target-health --target-group-arn "$INACTIVE_TG" \
   --region "$AWS_REGION" \
   --query "TargetHealthDescriptions[?TargetHealth.State=='healthy'] | length(@)" \
   --output text)
-[[ "$COUNT" -eq 0 ]] && { rollback; exit 1; }
+[[ "$COUNT" -eq 0 ]] && { echo "no healthy targets — triggering rollback"; rollback; exit 1; }
 echo "[${ELAPSED}s] $COUNT healthy"
 sleep 15; ELAPSED=$((ELAPSED + 15))
+done
+
+# watch the 5xx alarm for 2 minutes — rollback if it fires
+ALARM_NAME="${PROJECT}-alb-5xx-rate"
+ELAPSED=0
+while [[ $ELAPSED -lt 120 ]]; do
+  ALARM_STATE=$(aws cloudwatch describe-alarms \
+    --alarm-names "$ALARM_NAME" \
+    --region "$AWS_REGION" \
+    --query "MetricAlarms[0].StateValue" \
+    --output text 2>/dev/null || echo "INSUFFICIENT_DATA")
+  echo "[${ELAPSED}s] alarm=$ALARM_STATE"
+  [[ "$ALARM_STATE" == "ALARM" ]] && { rollback; exit 1; }
+  sleep 15; ELAPSED=$((ELAPSED + 15))
 done
 
 trap - ERR

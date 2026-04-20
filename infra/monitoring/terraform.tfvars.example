@@ -1,0 +1,7 @@
+aws_region   = "us-west-1"
+project_name = "ntc-constellation"
+environment  = "dev"
+
+alarm_error_rate_threshold = 5
+alarm_evaluation_periods   = 2
+alarm_period_seconds       = 60
