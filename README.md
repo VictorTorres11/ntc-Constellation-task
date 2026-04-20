@@ -226,3 +226,57 @@ Push to `main` triggers the pipeline automatically:
 - https://docs.github.com/en/actions/use-cases-and-examples/deploying/deploying-to-amazon-elastic-container-service
 - https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
 - https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html
+
+---
+
+## Stage 5 — Blue-Green Deployment
+
+Zero-downtime deploys by keeping two identical environments. The ALB listener always routes 100% of traffic to exactly one of them. A deploy updates the idle environment, waits for it to be healthy, then switches traffic. If anything goes wrong, the script reverts the listener in under 60 seconds.
+
+### Prerequisites
+
+- AWS CLI >= 2.0 with credentials that have `elbv2:DescribeRules`, `elbv2:ModifyRule`, `ecs:UpdateService`, `ecs:RegisterTaskDefinition`, `ecs:DescribeServices`, `elbv2:DescribeTargetHealth`
+- `python3` available in PATH
+
+### How the Script Works
+
+1. Detects which environment is currently active by inspecting the ALB listener rule weights
+2. Updates the inactive ECS service with the new task definition
+3. Waits for `aws ecs wait services-stable` to confirm all tasks are running
+4. Polls the inactive target group until at least one target is healthy
+5. Verifies the sum of target group weights equals 100% before switching
+6. Switches the ALB listener to send 100% of traffic to the newly deployed environment
+7. Monitors the new environment for 5 minutes — if healthy targets drop to zero, triggers rollback
+8. Rollback reverts the listener rule to the previous environment and logs elapsed time
+
+### Commands
+
+```bash
+# Run manually
+export AWS_REGION="us-west-1"
+export PROJECT_NAME="ntc-constellation"
+export ECS_CLUSTER="ntc-constellation-cluster"
+export IMAGE_TAG="<git-sha>"
+
+./scripts/blue-green-deploy.sh
+
+# Check which environment is currently active
+./scripts/verify-alb-traffic-distribution.sh
+```
+
+### Environment Variables
+
+`IMAGE_TAG` = Git SHA or image tag to deploy  (required)
+`AWS_REGION` = AWS region
+`PROJECT_NAME` = Project prefix
+`ECS_CLUSTER` = ECS cluster name
+`TG_BLUE_ARN` = Override blue target group ARN
+`TG_GREEN_ARN` =  Override green target group ARN
+`ALB_LISTENER_ARN` = Override ALB listener ARN
+
+### References
+
+- https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-type-bluegreen.html
+- https://docs.aws.amazon.com/elasticloadbalancing/latest/application/listener-update-rules.html
+- https://docs.aws.amazon.com/cli/latest/reference/ecs/wait/services-stable.html
+- https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-target-health.html
