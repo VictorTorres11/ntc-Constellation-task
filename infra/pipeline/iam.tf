@@ -210,7 +210,10 @@ data "aws_iam_policy_document" "github_actions_infra" {
       "logs:DescribeLogGroups",
       "logs:PutRetentionPolicy",
       "logs:ListTagsLogGroup",
+      "logs:ListTagsForResource",
       "logs:TagLogGroup",
+      "logs:TagResource",
+      "logs:UntagResource",
     ]
     resources = ["*"]
   }
