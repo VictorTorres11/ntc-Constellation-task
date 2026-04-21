@@ -122,6 +122,25 @@ jobs:
             echo "service not found or already inactive, skipping"
           fi
 
+      # manually delete nat gateways and release eips to unblock igw detach
+      - name: cleanup nat gateways
+        run: |
+          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=ntc-constellation-vpc" --region ${{ vars.AWS_REGION }} --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
+          
+          if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
+            NAT_IDS=$(aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=$VPC_ID" --region ${{ vars.AWS_REGION }} --query "NatGateways[?State=='available'].NatGatewayId" --output text)
+            
+            for NAT_ID in $NAT_IDS; do
+              echo "deleting nat gateway $NAT_ID"
+              aws ec2 delete-nat-gateway --nat-gateway-id $NAT_ID --region ${{ vars.AWS_REGION }}
+            done
+            
+            if [ -n "$NAT_IDS" ]; then
+              echo "waiting for nat gateways to delete..."
+              sleep 60
+            fi
+          fi
+
       - run: terraform init
         working-directory: infra/ecs
 
