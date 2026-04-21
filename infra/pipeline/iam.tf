@@ -160,10 +160,10 @@ data "aws_iam_policy_document" "github_actions_infra" {
       "ec2:DetachInternetGateway",
       "ec2:AllocateAddress",
       "ec2:ReleaseAddress",
-      "ec2:DescribeAddresses",
-      "ec2:DescribeAddressesAttribute",
       "ec2:AssociateAddress",
       "ec2:DisassociateAddress",
+      "ec2:DescribeAddresses",
+      "ec2:DescribeAddressesAttribute",
       "ec2:CreateNatGateway",
       "ec2:DeleteNatGateway",
       "ec2:DescribeNatGateways",
@@ -188,6 +188,8 @@ data "aws_iam_policy_document" "github_actions_infra" {
       "ec2:DescribeAvailabilityZones",
       "ec2:DescribeAccountAttributes",
       "ec2:DescribeNetworkInterfaces",
+      "ec2:DetachNetworkInterface",
+      "ec2:DeleteNetworkInterface",
     ]
     resources = ["*"]
   }

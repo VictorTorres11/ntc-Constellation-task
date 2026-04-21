@@ -44,18 +44,26 @@ for NAT_ID in $NAT_IDS; do
   aws ec2 wait nat-gateway-deleted --nat-gateway-ids "$NAT_ID" --region "$REGION"
 done
 
-# disassociate eips
-ASSOC_IDS=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "Addresses[?AssociationId!=null].AssociationId" --output text)
+# give aws a moment to fully release the eips after nat deletion
+sleep 10
+
+# disassociate eips not linked to nat gateways
+ASSOC_IDS=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "Addresses[?AssociationId!=null && !contains(AssociationId, 'eipassoc')].AssociationId" --output text 2>/dev/null || echo "")
 
 for ASSOC_ID in $ASSOC_IDS; do
   aws ec2 disassociate-address --association-id "$ASSOC_ID" --region "$REGION" || true
 done
 
-# release eips
-ALLOC_IDS=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "Addresses[].AllocationId" --output text)
-
-for ALLOC_ID in $ALLOC_IDS; do
-  aws ec2 release-address --allocation-id "$ALLOC_ID" --region "$REGION" || true
+# release eips - retry a few times since nat gateway release can lag
+for i in 1 2 3; do
+  ALLOC_IDS=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "Addresses[?AssociationId==null].AllocationId" --output text)
+  for ALLOC_ID in $ALLOC_IDS; do
+    aws ec2 release-address --allocation-id "$ALLOC_ID" --region "$REGION" || true
+  done
+  REMAINING=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "length(Addresses)" --output text)
+  [ "$REMAINING" = "0" ] && break
+  echo "eips still present, waiting 15s..."
+  sleep 15
 done
 
 # cleanup enis
