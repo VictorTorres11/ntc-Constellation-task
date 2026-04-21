@@ -8,6 +8,7 @@
 # https://docs.aws.amazon.com/cli/latest/reference/ec2/describe-network-interfaces.html
 # https://docs.aws.amazon.com/cli/latest/reference/ec2/detach-network-interface.html
 # https://docs.aws.amazon.com/cli/latest/reference/ecs/update-service.html
+# https://docs.aws.amazon.com/cli/latest/reference/elbv2/delete-load-balancer.html
 set -e
 
 REGION="${AWS_REGION:-eu-west-1}"
@@ -32,6 +33,19 @@ if [ "$STATUS" = "ACTIVE" ]; then
   aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE" --region "$REGION"
 fi
 
+# delete alb first
+ALB_ARNS=$(aws elbv2 describe-load-balancers --region "$REGION" --query "LoadBalancers[?contains(LoadBalancerName, 'ntc-constellation')].LoadBalancerArn" --output text)
+
+for ALB_ARN in $ALB_ARNS; do
+  echo "deleting alb $ALB_ARN"
+  aws elbv2 delete-load-balancer --load-balancer-arn "$ALB_ARN" --region "$REGION"
+done
+
+if [ -n "$ALB_ARNS" ]; then
+  echo "waiting for alb to delete..."
+  aws elbv2 wait load-balancers-deleted --load-balancer-arns $ALB_ARNS --region "$REGION"
+fi
+
 # delete nat gateways
 NAT_IDS=$(aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=$VPC_ID" "Name=state,Values=available,pending" --region "$REGION" --query "NatGateways[].NatGatewayId" --output text)
 
@@ -44,17 +58,9 @@ for NAT_ID in $NAT_IDS; do
   aws ec2 wait nat-gateway-deleted --nat-gateway-ids "$NAT_ID" --region "$REGION"
 done
 
-# give aws a moment to fully release the eips after nat deletion
 sleep 10
 
-# disassociate eips not linked to nat gateways
-ASSOC_IDS=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "Addresses[?AssociationId!=null && !contains(AssociationId, 'eipassoc')].AssociationId" --output text 2>/dev/null || echo "")
-
-for ASSOC_ID in $ASSOC_IDS; do
-  aws ec2 disassociate-address --association-id "$ASSOC_ID" --region "$REGION" || true
-done
-
-# release eips - retry a few times since nat gateway release can lag
+# release eips - retry since alb or nat release
 for i in 1 2 3; do
   ALLOC_IDS=$(aws ec2 describe-addresses --filters "Name=domain,Values=vpc" --region "$REGION" --query "Addresses[?AssociationId==null].AllocationId" --output text)
   for ALLOC_ID in $ALLOC_IDS; do
@@ -66,18 +72,26 @@ for i in 1 2 3; do
   sleep 15
 done
 
-# cleanup enis
-ENI_IDS=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC_ID" --region "$REGION" --query "NetworkInterfaces[?Status!='available'].NetworkInterfaceId" --output text)
+# cleanup loose enis
+ENI_IDS=$(aws ec2 describe-network-interfaces \
+  --filters "Name=vpc-id,Values=$VPC_ID" "Name=status,Values=available" \
+  --region "$REGION" \
+  --query "NetworkInterfaces[?RequesterManaged==\`false\`].NetworkInterfaceId" --output text)
 
 for ENI_ID in $ENI_IDS; do
-  ATTACHMENT_ID=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI_ID" --region "$REGION" --query "NetworkInterfaces[0].Attachment.AttachmentId" --output text 2>/dev/null || echo "")
-  
-  if [ -n "$ATTACHMENT_ID" ] && [ "$ATTACHMENT_ID" != "None" ]; then
-    aws ec2 detach-network-interface --attachment-id "$ATTACHMENT_ID" --force --region "$REGION" || true
-    sleep 3
-  fi
-  
+  echo "deleting eni $ENI_ID"
   aws ec2 delete-network-interface --network-interface-id "$ENI_ID" --region "$REGION" || true
+done
+
+# delete non-main route tables
+RT_IDS=$(aws ec2 describe-route-tables \
+  --filters "Name=vpc-id,Values=$VPC_ID" \
+  --region "$REGION" \
+  --query "RouteTables[?Associations[?Main==\`false\`] || length(Associations)==\`0\`].RouteTableId" --output text)
+
+for RT_ID in $RT_IDS; do
+  echo "deleting route table $RT_ID"
+  aws ec2 delete-route-table --route-table-id "$RT_ID" --region "$REGION" || true
 done
 
 echo "cleanup done"

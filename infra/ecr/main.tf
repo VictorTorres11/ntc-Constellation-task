@@ -24,6 +24,7 @@ provider "aws" {
 resource "aws_ecr_repository" "this" {
   name                 = var.repository_name
   image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
   # enable automatic image scanning on push
   image_scanning_configuration {
