@@ -269,10 +269,10 @@ jobs:
           curl -sf "$BASE_URL/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print('health:', d['status'])"
 
           # light load test — 50 requests to populate CloudWatch metrics
-          curl -sf "$BASE_URL/load-test?requests=50" | python3 -c "
+          curl -sf "$BASE_URL/load-test?requests=50" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
-total = d['total']
-avg = sum(r['elapsedMs'] for r in d['results']) / total
-print(f'load test: {total} requests, avg {avg:.1f}ms')
-"
+total = d["total"]
+avg = sum(r["elapsedMs"] for r in d["results"]) / total
+print(f"load test: {total} requests, avg {avg:.1f}ms")
+'
