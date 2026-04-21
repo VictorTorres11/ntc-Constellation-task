@@ -106,40 +106,12 @@ jobs:
           url=$(aws ecr describe-repositories --repository-names "${{ vars.ECR_REPOSITORY_NAME }}" --region "${{ vars.AWS_REGION }}" --query "repositories[0].repositoryUri" --output text 2>/dev/null || echo "placeholder/placeholder")
           echo "url=$url" >> $GITHUB_OUTPUT
 
-      # stop ecs service first so tasks release their ENIs before terraform tries to delete the VPC
-      - name: stop ecs service
+      - name: pre-destroy cleanup
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
-          CLUSTER="ntc-constellation"
-          SERVICE="ntc-constellation-service"
-
-          STATUS=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --region ${{ vars.AWS_REGION }} --query "services[0].status" --output text 2>/dev/null || echo "MISSING")
-
-          if [ "$STATUS" = "ACTIVE" ]; then
-            aws ecs update-service --cluster $CLUSTER --service $SERVICE --desired-count 0 --region ${{ vars.AWS_REGION }}
-            echo "waiting for tasks to drain..."
-            aws ecs wait services-stable --cluster $CLUSTER --services $SERVICE --region ${{ vars.AWS_REGION }}
-          else
-            echo "service not found or already inactive, skipping"
-          fi
-
-      # manually delete nat gateways and release eips to unblock igw detach
-      - name: cleanup nat gateways
-        run: |
-          VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=ntc-constellation-vpc" --region ${{ vars.AWS_REGION }} --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
-          
-          if [ -n "$VPC_ID" ] && [ "$VPC_ID" != "None" ]; then
-            NAT_IDS=$(aws ec2 describe-nat-gateways --filter "Name=vpc-id,Values=$VPC_ID" --region ${{ vars.AWS_REGION }} --query "NatGateways[?State=='available'].NatGatewayId" --output text)
-            
-            for NAT_ID in $NAT_IDS; do
-              echo "deleting nat gateway $NAT_ID"
-              aws ec2 delete-nat-gateway --nat-gateway-id $NAT_ID --region ${{ vars.AWS_REGION }}
-            done
-            
-            if [ -n "$NAT_IDS" ]; then
-              echo "waiting for nat gateways to delete..."
-              sleep 60
-            fi
-          fi
+          chmod +x scripts/pre-destroy-cleanup.sh
+          ./scripts/pre-destroy-cleanup.sh
 
       - run: terraform init
         working-directory: infra/ecs
