@@ -106,6 +106,22 @@ jobs:
           url=$(aws ecr describe-repositories --repository-names "${{ vars.ECR_REPOSITORY_NAME }}" --region "${{ vars.AWS_REGION }}" --query "repositories[0].repositoryUri" --output text 2>/dev/null || echo "placeholder/placeholder")
           echo "url=$url" >> $GITHUB_OUTPUT
 
+      # stop ecs service first so tasks release their ENIs before terraform tries to delete the VPC
+      - name: stop ecs service
+        run: |
+          CLUSTER="ntc-constellation"
+          SERVICE="ntc-constellation-service"
+
+          STATUS=$(aws ecs describe-services --cluster $CLUSTER --services $SERVICE --region ${{ vars.AWS_REGION }} --query "services[0].status" --output text 2>/dev/null || echo "MISSING")
+
+          if [ "$STATUS" = "ACTIVE" ]; then
+            aws ecs update-service --cluster $CLUSTER --service $SERVICE --desired-count 0 --region ${{ vars.AWS_REGION }}
+            echo "waiting for tasks to drain..."
+            aws ecs wait services-stable --cluster $CLUSTER --services $SERVICE --region ${{ vars.AWS_REGION }}
+          else
+            echo "service not found or already inactive, skipping"
+          fi
+
       - run: terraform init
         working-directory: infra/ecs
 
