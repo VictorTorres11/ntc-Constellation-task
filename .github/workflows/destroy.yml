@@ -1,0 +1,188 @@
+name: Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DESTROY to confirm'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  guard:
+    name: Confirm
+    runs-on: ubuntu-latest
+    steps:
+      - name: check input
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DESTROY" ]; then
+            exit 1
+          fi
+
+  get-role:
+    name: Get OIDC Role
+    runs-on: ubuntu-latest
+    needs: [guard]
+
+    outputs:
+      role_arn: ${{ steps.tf-output.outputs.role_arn }}
+      account_id: ${{ steps.account.outputs.id }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "~1.7"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.BOOTSTRAP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.BOOTSTRAP_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: get account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - run: terraform init
+        working-directory: infra/pipeline
+
+      - name: get role arn
+        id: tf-output
+        run: echo "role_arn=$(terraform output -raw github_actions_role_arn)" >> $GITHUB_OUTPUT
+        working-directory: infra/pipeline
+
+  destroy-monitoring:
+    name: Destroy / Monitoring
+    runs-on: ubuntu-latest
+    needs: [get-role]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "~1.7"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ needs.get-role.outputs.role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - run: terraform init
+        working-directory: infra/monitoring
+
+      - run: terraform destroy -auto-approve -var="aws_region=${{ vars.AWS_REGION }}"
+        working-directory: infra/monitoring
+
+  destroy-ecs:
+    name: Destroy / ECS
+    runs-on: ubuntu-latest
+    needs: [get-role, destroy-monitoring]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "~1.7"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ needs.get-role.outputs.role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # ecr url is required by the ecs module even on destroy
+      - name: get ecr url
+        id: ecr
+        run: |
+          url=$(aws ecr describe-repositories --repository-names "${{ vars.ECR_REPOSITORY_NAME }}" --region "${{ vars.AWS_REGION }}" --query "repositories[0].repositoryUri" --output text 2>/dev/null || echo "placeholder/placeholder")
+          echo "url=$url" >> $GITHUB_OUTPUT
+
+      - run: terraform init
+        working-directory: infra/ecs
+
+      - run: |
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="ecr_repository_url=${{ steps.ecr.outputs.url }}"
+        working-directory: infra/ecs
+
+  destroy-ecr:
+    name: Destroy / ECR
+    runs-on: ubuntu-latest
+    needs: [get-role, destroy-ecs]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "~1.7"
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ needs.get-role.outputs.role_arn }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # ecr won't delete if there are images, so we purge first
+      - name: purge images
+        run: |
+          aws ecr batch-delete-image \
+            --repository-name "${{ vars.ECR_REPOSITORY_NAME }}" \
+            --region "${{ vars.AWS_REGION }}" \
+            --image-ids "$(aws ecr list-images --repository-name "${{ vars.ECR_REPOSITORY_NAME }}" --region "${{ vars.AWS_REGION }}" --query 'imageIds[*]' --output json)" 2>/dev/null || true
+
+      - run: terraform init
+        working-directory: infra/ecr
+
+      - run: |
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="repository_name=${{ vars.ECR_REPOSITORY_NAME }}"
+        working-directory: infra/ecr
+
+  destroy-pipeline:
+    name: Destroy / Pipeline
+    runs-on: ubuntu-latest
+    needs: [get-role, destroy-ecr]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "~1.7"
+          terraform_wrapper: false
+
+      # pipeline uses bootstrap creds, not the oidc role (we're destroying the role itself)
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.BOOTSTRAP_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.BOOTSTRAP_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: get account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
+
+      - run: terraform init
+        working-directory: infra/pipeline
+
+      - run: |
+          terraform destroy -auto-approve \
+            -var="aws_region=${{ vars.AWS_REGION }}" \
+            -var="github_org=${{ secrets.GH_ORG }}" \
+            -var="github_repo=ntc-Constellation-task" \
+            -var="ecr_repository_name=${{ vars.ECR_REPOSITORY_NAME }}" \
+            -var="ecs_execution_role_arn=arn:aws:iam::${{ steps.account.outputs.id }}:role/ntc-constellation-ecs-execution-role" \
+            -var="ecs_task_role_arn=arn:aws:iam::${{ steps.account.outputs.id }}:role/ntc-constellation-ecs-task-role"
+        working-directory: infra/pipeline
