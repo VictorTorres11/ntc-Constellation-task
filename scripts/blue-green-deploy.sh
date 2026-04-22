@@ -81,6 +81,7 @@ echo "waiting for $INACTIVE_SVC..."
 aws ecs wait services-stable --cluster "$CLUSTER" --services "$INACTIVE_SVC" --region "$AWS_REGION"
 
 # wait healthy targets
+# TODO: maybe add a minimum healthy count threshold instead of just > 0
 ELAPSED=0
 while [[ $ELAPSED -lt 300 ]]; do
   COUNT=$(aws elbv2 describe-target-health --target-group-arn "$INACTIVE_TG" \

@@ -21,6 +21,7 @@ resource "aws_vpc" "this" {
     Name        = "${var.project_name}-vpc"
     Environment = var.environment
     ManagedBy   = "terraform"
+    Project     = var.project_name
   }
 }
 
@@ -90,6 +91,8 @@ resource "aws_nat_gateway" "this" {
     Name        = "${var.project_name}-nat"
     Environment = var.environment
     ManagedBy   = "terraform"
+    Project     = var.project_name
+    CostCenter  = "infrastructure"
   }
 
   depends_on = [aws_internet_gateway.this]
